@@ -1,8 +1,8 @@
-// tailwind.config.cjs (CommonJS)
-const forms = require("@tailwindcss/forms");
+// tailwind.config.js (ESM)
+import forms from "@tailwindcss/forms";
 
 /** @type {import('tailwindcss').Config} */
-module.exports = {
+export default {
   darkMode: ["class"],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
@@ -23,4 +23,4 @@ module.exports = {
     },
   },
   plugins: [forms()],
-};
+}
