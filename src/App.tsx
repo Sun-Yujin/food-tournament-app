@@ -22,6 +22,7 @@ import {
   signInWithRedirect
 } from "firebase/auth";
 import { getUser, saveUser } from "@/lib/users";
+import { saveTournamentToFirestore } from "@/lib/tournaments";
 
 
 // -------------------------------
@@ -353,7 +354,7 @@ useEffect(() => {
           </TabsContent>
 
           <TabsContent value="create" className="mt-6">
-            <CreateTournament onCreate={(t) => { setTournaments([t, ...tournaments]); setTab("browse"); }} />
+            <CreateTournament userDoc={userDoc} onCreate={(t) => { setTournaments([t, ...tournaments]); setTab("browse"); }} />
           </TabsContent>
 
           <TabsContent value="play" className="mt-6">
@@ -592,7 +593,13 @@ function TournamentGrid({ items, onOpen }: { items: Tournament[]; onOpen: (t: To
   );
 }
 
-function CreateTournament({ onCreate }: { onCreate: (t: Tournament) => void }) {
+function CreateTournament({
+  onCreate,
+  userDoc,
+}: {
+  onCreate: (t: Tournament) => void;
+  userDoc: { name?: string; email?: string; spoons?: number } | null;
+}) {
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [locationTag, setLocationTag] = useState("");
@@ -605,7 +612,6 @@ function CreateTournament({ onCreate }: { onCreate: (t: Tournament) => void }) {
   const size = useMemo(() => toPowerOfTwo(entries.length), [entries.length]);
 
   function handleCreate() {
-    if (!title.trim() || entries.length < 4) return alert("제목과 최소 4개 이상의 식당을 입력해주세요.");
     const t = toTournament({
       id: uuidv4(),
       title: title.trim(),
@@ -616,7 +622,23 @@ function CreateTournament({ onCreate }: { onCreate: (t: Tournament) => void }) {
       rewardsPool,
       locationTag: locationTag.trim() || undefined,
     });
+
+    // ✅ Firestore 저장 추가
+    const userName = userDoc?.name ?? "익명 사용자";
+    const userEmail = userDoc?.email ?? "(이메일 없음)";
+    saveTournamentToFirestore({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      locationTag: t.locationTag,
+      creatorName: userName,
+      creatorEmail: userEmail,
+    }).catch((err) => {
+      console.error("토너먼트 저장 실패:", err);
+    });
+
     onCreate(t);
+
     // reset form
     setTitle("");
     setDesc("");
@@ -627,7 +649,7 @@ function CreateTournament({ onCreate }: { onCreate: (t: Tournament) => void }) {
   }
 
   return (
-    <div className="grid md:grid-cols-2 gap-6">
+    <div className="md:col-span-2">
       <Card>
         <CardHeader>
           <CardTitle>기본 정보</CardTitle>
@@ -638,44 +660,7 @@ function CreateTournament({ onCreate }: { onCreate: (t: Tournament) => void }) {
           <Input placeholder="지역 태그 (선택)" value={locationTag} onChange={(e) => setLocationTag(e.target.value)} />
           <Textarea placeholder="설명 (선택)" value={desc} onChange={(e) => setDesc(e.target.value)} />
         </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>참가 식당</CardTitle>
-          <CardDescription>한 줄에 하나씩, 또는 콤마로 구분해 입력</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Textarea rows={10} placeholder={"예)\n광화문국밥\n인사동만두\n경복궁비빔밥"} value={entriesText} onChange={(e) => setEntriesText(e.target.value)} />
-          <div className="flex items-center justify-between mt-2 text-sm text-slate-600">
-            <span>등록: {entries.length}개</span>
-            <span>토너먼트 크기: {size}강</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="md:col-span-2">
-        <CardHeader>
-          <CardTitle>리워드 설정</CardTitle>
-          <CardDescription>랜덤 또는 가중(결승/준결승 가산점) 모드 선택</CardDescription>
-        </CardHeader>
-        <CardContent className="grid md:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">모드</label>
-            <Select value={rewardMode} onValueChange={(v: RewardMode) => setRewardMode(v)}>
-              <SelectTrigger><SelectValue placeholder="리워드 모드" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="random">랜덤</SelectItem>
-                <SelectItem value="weighted">가중</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="md:col-span-2">
-            <label className="text-sm font-medium">리워드 풀 (한 줄당 하나)</label>
-            <Textarea rows={6} value={rewardsPoolText} onChange={(e) => setRewardsPoolText(e.target.value)} />
-          </div>
-        </CardContent>
-        <CardFooter className="justify-end">
+                <CardFooter className="justify-end">
           <Button onClick={handleCreate}><Plus className="w-4 h-4 mr-1" /> 만들기</Button>
         </CardFooter>
       </Card>
