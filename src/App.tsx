@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { v4 as uuidv4 } from "uuid";
-import { CupSoda, Plus, Salad, Sparkles, Swords, Medal, Gift } from "lucide-react";
+import { CupSoda, Plus, Salad, Sparkles, Swords, Medal, Gift, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { CuteSpoonIcon } from "@/components/ui/cuteSpoonIcon";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -204,6 +205,28 @@ export default function App() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [active, setActive] = useState<Tournament | null>(null);
   const [rewardDialog, setRewardDialog] = useState<{ open: boolean; reward?: string; code?: string }>();
+  // ✅ 추가: 우측 슬라이드 패널 열림 상태
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  // ✅ 추가: 로컬스토리지에서 사용자 정보 로드
+  const userProfile = useMemo(() => {
+    try {
+      const raw = localStorage.getItem("user-profile");
+      if (!raw) return { name: "사용자", email: "(미등록)", location: "", joinedAt: Date.now() };
+      return JSON.parse(raw);
+    } catch {
+      return { name: "사용자", email: "(미등록)", location: "", joinedAt: Date.now() };
+    }
+  }, []);
+
+  // ✅ 추가: ESC로 닫기
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setProfileOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     const existing = loadTournaments();
@@ -240,6 +263,21 @@ export default function App() {
             <Input placeholder="지역/제목 검색" value={query} onChange={(e) => setQuery(e.target.value)} className="w-56" />
             <Button variant="outline" onClick={() => setTab("create")}>
               <Plus className="w-4 h-4 mr-1" /> 토너먼트 만들기
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="개인정보 패널"
+              onClick={() => setProfileOpen((v) => !v)}
+              className="text-slate-800"
+            >
+              {/* ✅ 순수 CSS 햄버거 (아이콘 라이브러리 불필요) */}
+              <span className="relative block w-5 h-3">
+                <span className="absolute inset-x-0 top-0 h-0.5 bg-current rounded"></span>
+                <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0.5 bg-current rounded"></span>
+                <span className="absolute inset-x-0 bottom-0 h-0.5 bg-current rounded"></span>
+              </span>
             </Button>
           </div>
         </div>
@@ -302,6 +340,70 @@ export default function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AnimatePresence>
+        {profileOpen && (
+          <>
+            {/* 배경 오버레이 */}
+            <motion.div
+              key="overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-black/30"
+              onClick={() => setProfileOpen(false)}
+              aria-hidden="true"
+            />
+            {/* 패널 본체 */}
+            <motion.aside
+              key="panel"
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-sm bg-white border-l shadow-xl"
+              role="dialog"
+              aria-modal="true"
+              aria-label="내 정보"
+            >
+              <div className="h-full flex flex-col">
+                {/* 헤더 */}
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <User className="w-5 h-5" />
+                    <span className="font-semibold">내 정보</span>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => setProfileOpen(false)} aria-label="닫기">
+                    ✕
+                  </Button>
+                </div>
+
+                {/* 내용 */}
+                <div className="p-4 space-y-3 overflow-y-auto">
+                  {/* 이름 */}
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">이름</p>
+                    <p className="text-base font-semibold">{userProfile.name || "사용자"}</p>
+                  </div>
+
+                  {/* 보유 숟가락 */}
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">보유 숟가락</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <CuteSpoonIcon size={18} color="#f5a623" />
+                      <p className="text-base font-semibold">
+                        {(userProfile.spoons ?? 0).toLocaleString()} 개
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200 my-2"></div>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
