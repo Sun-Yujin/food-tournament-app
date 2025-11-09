@@ -12,6 +12,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Toggle } from "@/components/ui/toggle";
+import { auth } from "@/lib/firebase";
+import {
+  onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  signInAnonymously,
+  signInWithRedirect
+} from "firebase/auth";
+import { getUser, saveUser } from "@/lib/users";
+
 
 // -------------------------------
 // Types
@@ -207,17 +218,64 @@ export default function App() {
   const [rewardDialog, setRewardDialog] = useState<{ open: boolean; reward?: string; code?: string }>();
   // ✅ 추가: 우측 슬라이드 패널 열림 상태
   const [profileOpen, setProfileOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [uid, setUid] = useState<string | null>(null);
+  const [userDoc, setUserDoc] = useState<{
+    name?: string;
+    email?: string;
+    spoons?: number;
+  } | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
-  // ✅ 추가: 로컬스토리지에서 사용자 정보 로드
-  const userProfile = useMemo(() => {
+  // ⬇ 로그인
+  useEffect(() => {
+    (async () => {
+      if (!uid) return;
+      const fromDb = await getUser(uid);
+      if (fromDb) {
+        setUserDoc({
+          name: fromDb.name ?? "사용자",
+          email: fromDb.email ?? "(미등록)",
+          spoons: fromDb.spoons ?? 0,
+        });
+      }
+    })();
+  }, [uid]);
+
+useEffect(() => {
+  setAuthLoading(true);
+  const unsub = onAuthStateChanged(auth, async (u) => {
     try {
-      const raw = localStorage.getItem("user-profile");
-      if (!raw) return { name: "사용자", email: "(미등록)", location: "", joinedAt: Date.now() };
-      return JSON.parse(raw);
-    } catch {
-      return { name: "사용자", email: "(미등록)", location: "", joinedAt: Date.now() };
+      if (u) {
+        setUid(u.uid);
+        const data = await getUser(u.uid);
+        if (!data) {
+          // Firestore에 문서가 없으면 새로 생성
+          await saveUser(u.uid, u.displayName ?? "사용자", u.email ?? "(미등록)");
+          setUserDoc({
+            name: u.displayName ?? "사용자",
+            email: u.email ?? "(미등록)",
+            spoons: 0, // ✅ 새 사용자 기본값
+          });
+        } else {
+          // ✅ Firestore 문서에 있는 spoons 포함해서 세팅
+          setUserDoc({
+            name: data.name,
+            email: data.email,
+            spoons: data.spoons ?? 0,
+          });
+        }
+      } else {
+        setUid(null);
+        setUserDoc(null);
+      }
+    } finally {
+      setAuthLoading(false);
     }
-  }, []);
+  });
+  return () => unsub();
+}, []);
 
   // ✅ 추가: ESC로 닫기
   useEffect(() => {
@@ -341,6 +399,51 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
+      {/* 로그인 모달 */}
+      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>로그인</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Button
+              className="w-full"
+              onClick={async () => {
+                setLoginError(null);
+                try {
+                  const provider = new GoogleAuthProvider();
+                  // 1차: 팝업 시도
+                  await signInWithPopup(auth, provider);
+                  setLoginOpen(false);
+                  setProfileOpen(false);
+                } catch (e: any) {
+                  // 팝업 차단/사파리 등 → 리다이렉트 폴백
+                  try {
+                    const provider = new GoogleAuthProvider();
+                    await signInWithRedirect(auth, provider);
+                    // 리다이렉트 후 돌아오면 onAuthStateChanged가 처리
+                  } catch (err: any) {
+                    console.error(err);
+                    setLoginError(err?.message || "로그인에 실패했어요.");
+                  }
+                }
+              }}
+            >
+              Google로 계속하기
+            </Button>
+
+            {loginError && (
+              <p className="text-xs text-red-600 mt-1">{loginError}</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setLoginOpen(false)}>닫기</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AnimatePresence>
         {profileOpen && (
           <>
@@ -380,22 +483,53 @@ export default function App() {
 
                 {/* 내용 */}
                 <div className="p-4 space-y-3 overflow-y-auto">
-                  {/* 이름 */}
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">이름</p>
-                    <p className="text-base font-semibold">{userProfile.name || "사용자"}</p>
-                  </div>
-
-                  {/* 보유 숟가락 */}
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">보유 숟가락</p>
-                    <div className="mt-1 flex items-center gap-2">
-                      <CuteSpoonIcon size={18} color="#f5a623" />
-                      <p className="text-base font-semibold">
-                        {(userProfile.spoons ?? 0).toLocaleString()} 개
-                      </p>
+                  {/* 로그인 로딩 중엔 살짝 비움 */}
+                  {authLoading ? (
+                    <div className="text-sm text-slate-500">불러오는 중...</div>
+                  ) : !userDoc ? (
+                    // ✅ 로그인 안 된 상태: 로그인 버튼 노출
+                    <div className="text-center space-y-3">
+                      <p className="text-sm text-slate-600">로그인하면 내 정보를 볼 수 있어요.</p>
+                      <Button className="w-full" onClick={() => setLoginOpen(true)}>
+                        로그인
+                      </Button>
                     </div>
-                  </div>
+                  ) : (
+                    // ✅ 로그인 된 상태: 내 정보 표시
+                    <>
+                      {/* 이름 */}
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-xs text-slate-500">이름</p>
+                        <p className="text-base font-semibold">{userDoc.name || "사용자"}</p>
+                      </div>
+
+                      {/* 이메일 */}
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-xs text-slate-500">이메일</p>
+                        <p className="text-base">{userDoc.email || "(미등록)"}</p>
+                      </div>
+
+                      {/* 보유 숟가락 */}
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-xs text-slate-500">보유 숟가락</p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <CuteSpoonIcon size={18} color="#f5a623" />
+                          <p className="text-base font-semibold">
+                            {(userDoc?.spoons ?? 0).toLocaleString()} 개
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 로그아웃 */}
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => signOut(auth)}
+                      >
+                        로그아웃
+                      </Button>
+                    </>
+                  )}
                 </div>
 
                 <div className="border-t border-slate-200 my-2"></div>
